@@ -82,6 +82,14 @@ then replace it with the separately managed `default-pool`. The node identity
 receives GKE telemetry permissions only. Grant private image pulls separately;
 application artifact permissions belong to the backend workload identity.
 
+The Google provider also reads the live pool's configuration through the cluster's
+`node_config` field after removing the bootstrap pool. The cluster therefore
+ignores subsequent changes to that bootstrap-only field. The separate
+`google_container_node_pool.this` resource owns the live configuration, including
+labels, workload identity and security settings, with its drift checks intact.
+This prevents the two resources from trying to change the same pool. See the
+[provider's read behavior](https://github.com/hashicorp/terraform-provider-google/blob/v8.7.0/google/services/container/resource_container_cluster.go#L3535).
+
 ## Inputs and outputs
 
 | Required input | Purpose |

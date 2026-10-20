@@ -83,7 +83,13 @@ resource "google_container_cluster" "this" {
     }
   }
   depends_on = [google_project_iam_member.nodes]
-  lifecycle { prevent_destroy = true }
+  lifecycle {
+    prevent_destroy = true
+    # This block configures only the temporary pool removed during creation.
+    # GKE reports the live pool here afterwards; the separate node-pool resource
+    # owns its configuration and retains full drift checks.
+    ignore_changes = [node_config]
+  }
 }
 
 resource "google_container_node_pool" "this" {
