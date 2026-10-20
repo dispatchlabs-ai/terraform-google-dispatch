@@ -63,13 +63,13 @@ variable "node_version" {
 }
 
 variable "minimum_master_version" {
-  description = "Optional creation/upgrade minimum. Leave null on adoption: import cannot recover this Terraform-only historical input. The observed control-plane version is exported."
+  description = "Optional control-plane version minimum. Null uses node_version for new clusters and leaves the minimum unset when preserving established bootstrap settings."
   type        = string
   default     = null
 }
 
 variable "adopt_existing_cluster" {
-  description = "Keep true for an imported cluster whose default pool is separately imported. False is only for fresh creation, which removes the empty bootstrap pool before creating the managed pool. Never toggle this on a live cluster."
+  description = "Preserve established cluster bootstrap settings. Leave false for new clusters, which replace the bootstrap pool with the separately managed pool. Never toggle this on a running cluster."
   type        = bool
   default     = false
 }
@@ -91,13 +91,13 @@ variable "node_machine_type" {
 }
 
 variable "node_identity_display_name" {
-  description = "Display name of the scoped node service account; preserve its observed value during adoption."
+  description = "Display name of the scoped node service account."
   type        = string
   default     = "Dispatch GKE node identity"
 }
 
 variable "labels" {
-  description = "Existing cluster and node resource labels."
+  description = "Cluster and node resource labels."
   type        = map(string)
   default     = {}
 }

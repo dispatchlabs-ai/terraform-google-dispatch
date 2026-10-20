@@ -5,7 +5,7 @@ resource "google_sql_database_instance" "this" {
   database_version    = "POSTGRES_17"
   deletion_protection = true
   # No root_password, user resources, secret-version reads or SQL provisioners.
-  # Adoption preserves the operator credential and initialized databases.
+  # The trusted operator manages credentials and application databases separately.
   settings {
     tier                        = var.postgres.tier
     edition                     = "ENTERPRISE"

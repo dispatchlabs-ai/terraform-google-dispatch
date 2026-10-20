@@ -35,8 +35,7 @@ resource "google_container_cluster" "this" {
     }
   }
 
-  # The imported default-pool is managed by the separate node-pool resource.
-  # Never remove/recreate it to imitate a greenfield cluster example.
+  # The default-pool lifecycle belongs to the separate node-pool resource.
   release_channel { channel = "STABLE" }
   private_cluster_config {
     enable_private_nodes    = true

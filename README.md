@@ -1,43 +1,110 @@
 # Dispatch Kubernetes foundation on Google Cloud
 
-This module owns a dedicated private VPC/subnet, Cloud NAT, Private Services
-Access, GKE Standard with Dataplane V2 and a scoped node identity, and private
-PostgreSQL 17 on Cloud SQL. The caller owns the project, API enablement, provider
-credentials, state backend, artifact storage and backend identity, image registry,
-operator access, DNS, gateway address and installation evidence.
+A reusable Terraform and OpenTofu module for a private GKE Standard cluster and
+PostgreSQL 17. It owns a dedicated VPC/subnet, Cloud NAT, Private Services Access,
+GKE Dataplane V2, a scoped node identity and private Cloud SQL.
 
-The application uses the same application-owned `dispatch/charts/dispatch` chart
-on Google and Azure. Terraform does not run Helm, configure Kubernetes providers,
-initialize application databases, read passwords or Secret Manager versions, or
-manage Kubernetes-generated infrastructure.
+The caller owns the project, API enablement, provider credentials, state backend,
+artifact storage and backend identity, image registry, operator access, DNS and
+gateway address. The application is installed separately with the shared
+[Dispatch Helm chart](https://github.com/dispatchlabs-ai/dispatch/tree/experiment/kubernetes/charts/dispatch).
+This module has no Helm or Kubernetes provider dependency. Application databases,
+passwords, Secret Manager payloads and Kubernetes-generated infrastructure remain
+outside its ownership.
 
-## Consumption
+## Usage
 
-Use a pinned Git commit. Supply the caller's Google provider, project, region,
-zone, non-overlapping IPv4 ranges, explicit private API allowlist, a supported GKE
-node version and maintenance exclusions. Enable the required Compute, GKE, IAM,
-Service Networking and Cloud SQL APIs before the foundation is created.
+Use Terraform or OpenTofu 1.11 or newer, below 2.0, and the Google provider
+8.x starting at 8.7. The caller configures the provider and backend and locks the
+exact provider version. No Dispatch caller repository is required.
 
-Fresh creation uses `adopt_existing_cluster = false`: GKE creates a temporary
-bootstrap pool with the scoped node service account, removes it, then Terraform
-creates the separately managed `default-pool`. The node service account receives
-only GKE node telemetry permissions here; caller-owned registry IAM supplies
-private image pulls. It receives no application storage permissions.
+Enable the Compute, Kubernetes Engine, IAM, Service Networking and Cloud SQL
+Admin APIs before creating the foundation. Replace `<commit>` with a full
+reviewed Git commit, choose a supported STABLE-channel GKE patch version, and
+review the example ranges against all connected networks.
 
-For an existing matching cluster, set `adopt_existing_cluster = true` and import
-both the cluster and its existing `default-pool` at their separate resource
-addresses. The module then leaves the Terraform-only initial-count and
-remove-default-pool inputs unset. It must never remove the imported pool to
-simulate a fresh installation. Do not toggle adoption mode on a live cluster.
-`minimum_master_version = null` preserves import state: the API cannot recover
-the historical Terraform-only minimum. The observed control-plane version is
-exported separately; node version and STABLE release channel remain explicit.
+```hcl
+terraform {
+  required_version = ">= 1.11, < 2.0"
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 8.7"
+    }
+  }
+}
 
-Live qualification covers adoption of an existing installation. The fresh
-Terraform creation path has been source-reviewed and validated, but has not been
-provisioned end to end.
+variable "project_id" {
+  type = string
+}
 
-## Ownership and maintenance
+variable "gke_node_version" {
+  type = string
+}
+
+provider "google" {
+  project = var.project_id
+  region  = "us-central1"
+}
+
+module "dispatch" {
+  source = "git::https://github.com/dispatchlabs-ai/terraform-google-dispatch.git?ref=<commit>"
+
+  project_id   = var.project_id
+  name         = "dispatch"
+  region       = "us-central1"
+  zone         = "us-central1-a"
+  node_version = var.gke_node_version
+  network_cidrs = {
+    nodes          = "10.60.0.0/20"
+    pods           = "10.61.0.0/16"
+    services       = "10.62.0.0/20"
+    control_plane  = "10.63.0.0/28"
+    private_access = "10.64.0.0/16"
+  }
+  api_access_cidrs = ["10.60.0.0/20", "10.61.0.0/16"]
+}
+```
+
+The caller must provide a private route for operators to the cluster and
+database. The example API allowlist covers the node/operator subnet and Pod
+range; add the actual operator range if access originates elsewhere.
+
+New clusters briefly use a bootstrap pool with the scoped node service account,
+then replace it with the separately managed `default-pool`. The node identity
+receives GKE telemetry permissions only. Grant private image pulls separately;
+application artifact permissions belong to the backend workload identity.
+
+## Inputs and outputs
+
+| Required input | Purpose |
+| --- | --- |
+| `project_id` | Existing caller-owned project. |
+| `name` | Resource prefix, 3–24 lowercase letters, digits or hyphens, starting with a letter. |
+| `region`, `zone` | Region and a zone within it for this single-zone foundation. |
+| `network_cidrs` | Non-overlapping IPv4 ranges for nodes, Pods, Services, control plane and Private Services Access. |
+| `api_access_cidrs` | Explicit RFC1918 operator/node/Pod ranges allowed on the private API, each /16 or narrower. |
+| `node_version` | Explicit supported GKE patch version such as `1.x.y-gke.z`. |
+
+| Optional input | Default and behavior |
+| --- | --- |
+| `node_count`, `node_machine_type` | Two `e2-standard-2` nodes; fixed count from 1 to 5, without autoscaling. |
+| `minimum_master_version` | `null`; new clusters use `node_version` as the control-plane minimum. |
+| `adopt_existing_cluster` | `false`; `true` preserves established bootstrap settings and leaves an unset control-plane minimum unchanged. Never toggle this setting on a running cluster. |
+| `node_identity_display_name`, `labels` | Node identity display name and cluster/node labels. |
+| `maintenance_exclusions` | Empty map; optional bounded windows with start/end timestamps and scope. |
+| `postgres` | PostgreSQL tier `db-custom-1-3840`, 20 GiB disk with growth capped at 100 GiB, seven retained backups and seven days of transaction logs. |
+
+See [variables.tf](variables.tf) for complete types and defaults.
+
+| Output | Contents |
+| --- | --- |
+| `network_id`, `subnetwork_id` | Identifiers for caller-owned networking integrations. |
+| `node_service_account` | Node identity for separately scoped registry access. |
+| `cluster` | Name, location, private endpoint, observed control-plane version and workload identity pool. |
+| `distributed_postgres` | Instance/connection names, hostname, private IP and port; no credentials. |
+
+## Operation
 
 This is a fixed-size, single-zone foundation, not an HA deployment. Cloud NAT,
 the GKE release channel, node auto-upgrades and Cloud SQL maintenance retain their
@@ -59,14 +126,13 @@ identity and grants immutable object create/read within the installation prefix.
 It also supplies the chart's metadata allowance, native GCS values, PostgreSQL CA
 and hostname, role-separated Secrets, application TLS and exact image digests.
 
-Cloud SQL uses private addressing, verified regional-CA TLS, seven-day backups
-and PITR by default, and credential-safe logging flags. `log_min_duration_sample`
-is not configurable through the Cloud SQL flags API; the runtime initializer
-must independently verify its inherited safe value. No root password or SQL user
-resource belongs in this module. A separate trusted operator establishes the
-administrative credential and initializes/verifies the seven isolated stores.
-The PSA DNS name is selected from the provider's `dns_names` list; `dns_name`
-alone covers other connection types and can be empty for PSA.
+Cloud SQL uses private addressing, a regional shared CA, required TLS, seven
+retained backups and seven-day PITR by default, and credential-safe logging flags.
+Clients must verify the CA and the exported hostname. `log_min_duration_sample` is not
+configurable through the Cloud SQL flags API; the runtime initializer must
+independently verify its inherited safe value. A separate trusted operator
+establishes the administrative credential and initializes/verifies the seven
+isolated stores.
 
 Cloud deletion protections and Terraform `prevent_destroy` guard the cluster,
 database and network. They do not replace backups or paired database/object/key
@@ -74,13 +140,10 @@ restore qualification. Secret escrow and artifact versions remain caller-owned.
 
 ## Validation
 
-Use Terraform 1.14 or newer, `terraform fmt`, provider initialization/validation
-and a full reviewed caller plan. The caller locks the exact Google provider; this
-module declares its compatible minor line. No automated tests or cloud-changing
-provisioners are included.
+Run `terraform fmt -check`, `terraform init` and `terraform validate`, then review
+the complete caller plan before applying. The equivalent `tofu` commands are
+supported. Static compatibility is checked with Terraform 1.11.0/1.14.5 and
+OpenTofu 1.11.0/1.13.1 against Google provider 8.7.0.
 
-An imported cluster can initially report a label-ownership update even when its
-effective cloud labels are unchanged. Inspect the exact pinned provider's update
-path and the complete saved plan before treating such an operation as state
-bookkeeping. Do not hide it with `ignore_changes`, omit intended labels or edit
-state manually. Require a subsequent full no-change plan.
+The new-cluster creation path is source-reviewed and statically validated; a
+complete fresh Terraform or OpenTofu deployment has not been exercised.
