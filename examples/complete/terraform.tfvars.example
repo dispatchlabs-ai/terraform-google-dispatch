@@ -1,0 +1,9 @@
+# Replace these values with your project, unique bucket and supported STABLE pin.
+project_id                 = "your-dispatch-project"
+artifacts_bucket           = "your-dispatch-project-artifacts"
+initial_kubernetes_version = "1.36.4-gke.1000000"
+# The version above illustrates the required format; discover a supported version
+# with: gcloud container get-server-config --region=us-central1
+#
+# Extend api_access_cidrs and arrange VPN/peering or an operator host in the VPC.
+# Set maintenance_exclusions when scheduling application drain and node upgrades.

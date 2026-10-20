@@ -54,7 +54,7 @@ variable "api_access_cidrs" {
 }
 
 variable "node_version" {
-  description = "Qualified GKE node version. GKE STABLE-channel maintenance remains independently managed."
+  description = "Supported GKE version used as the initial control-plane minimum for new clusters. New nodes inherit that version; STABLE owns subsequent node upgrades. This is not a continuing node-version pin."
   type        = string
   validation {
     condition     = can(regex("^1\\.[0-9]+\\.[0-9]+-gke\\.[0-9]+$", var.node_version))
@@ -102,6 +102,16 @@ variable "labels" {
   default     = {}
 }
 
+variable "maintenance_start_time" {
+  description = "Start of the daily GKE maintenance window in UTC, HH:MM. Arrange application drain before maintenance; this window does not disable emergency or end-of-support upgrades."
+  type        = string
+  default     = "03:00"
+  validation {
+    condition     = can(regex("^([01][0-9]|2[0-3]):[0-5][0-9]$", var.maintenance_start_time))
+    error_message = "Use a UTC time from 00:00 through 23:59."
+  }
+}
+
 variable "maintenance_exclusions" {
   description = "Explicit bounded GKE maintenance exclusions. Review fencing before expiry or node maintenance."
   type = map(object({
@@ -110,6 +120,14 @@ variable "maintenance_exclusions" {
     scope      = string
   }))
   default = {}
+  validation {
+    condition = alltrue([
+      for exclusion in values(var.maintenance_exclusions) :
+      contains(["NO_UPGRADES", "NO_MINOR_UPGRADES", "NO_MINOR_OR_NODE_UPGRADES"], exclusion.scope) &&
+      try(timecmp(exclusion.start_time, exclusion.end_time) < 0, false)
+    ])
+    error_message = "Each exclusion needs valid RFC3339 start/end timestamps in order and a supported GKE exclusion scope."
+  }
 }
 
 variable "postgres" {

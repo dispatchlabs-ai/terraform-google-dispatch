@@ -71,7 +71,7 @@ resource "google_container_cluster" "this" {
     managed_prometheus { enabled = true }
   }
   maintenance_policy {
-    daily_maintenance_window { start_time = "03:00" }
+    daily_maintenance_window { start_time = var.maintenance_start_time }
     dynamic "maintenance_exclusion" {
       for_each = var.maintenance_exclusions
       content {
@@ -87,13 +87,15 @@ resource "google_container_cluster" "this" {
 }
 
 resource "google_container_node_pool" "this" {
-  project           = var.project_id
-  name              = "default-pool"
-  location          = var.zone
-  cluster           = google_container_cluster.this.name
-  node_count        = var.node_count
-  node_locations    = [var.zone]
-  version           = var.node_version
+  project        = var.project_id
+  name           = "default-pool"
+  location       = var.zone
+  cluster        = google_container_cluster.this.name
+  node_count     = var.node_count
+  node_locations = [var.zone]
+  # STABLE owns node upgrades. Leaving version computed lets a new pool inherit
+  # the control-plane version and prevents later applies from restoring an old
+  # input after GKE has upgraded the pool.
   max_pods_per_node = 110
   management {
     auto_repair  = false

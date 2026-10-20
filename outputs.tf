@@ -17,6 +17,7 @@ output "cluster" {
     location       = google_container_cluster.this.location
     endpoint       = google_container_cluster.this.endpoint
     master_version = google_container_cluster.this.master_version
+    node_version   = google_container_node_pool.this.version
     workload_pool  = "${var.project_id}.svc.id.goog"
   }
 }

@@ -14,6 +14,13 @@ outside its ownership.
 
 ## Usage
 
+Start with [examples/complete](examples/complete) for a typed root configuration
+that also creates GCS artifacts, backend Workload Identity, image registry/pull
+access, gateway IP and the **private Cloud SQL DNS record** required for verified
+database connections. It runs from a Git checkout without another Dispatch
+repository. Platform/chart installation and database initialization are separate
+steps described in its README.
+
 Use Terraform or OpenTofu 1.11 or newer, below 2.0, and the Google provider
 8.x starting at 8.7. The caller configures the provider and backend and locks the
 exact provider version. No Dispatch caller repository is required.
@@ -84,7 +91,7 @@ application artifact permissions belong to the backend workload identity.
 | `region`, `zone` | Region and a zone within it for this single-zone foundation. |
 | `network_cidrs` | Non-overlapping IPv4 ranges for nodes, Pods, Services, control plane and Private Services Access. |
 | `api_access_cidrs` | Explicit RFC1918 operator/node/Pod ranges allowed on the private API, each /16 or narrower. |
-| `node_version` | Explicit supported GKE patch version such as `1.x.y-gke.z`. |
+| `node_version` | Supported GKE patch used as the initial control-plane minimum; new nodes inherit the control-plane version. STABLE owns later node upgrades. |
 
 | Optional input | Default and behavior |
 | --- | --- |
@@ -92,7 +99,8 @@ application artifact permissions belong to the backend workload identity.
 | `minimum_master_version` | `null`; new clusters use `node_version` as the control-plane minimum. |
 | `adopt_existing_cluster` | `false`; `true` preserves established bootstrap settings and leaves an unset control-plane minimum unchanged. Never toggle this setting on a running cluster. |
 | `node_identity_display_name`, `labels` | Node identity display name and cluster/node labels. |
-| `maintenance_exclusions` | Empty map; optional bounded windows with start/end timestamps and scope. |
+| `maintenance_start_time` | `03:00` UTC; daily maintenance window start in `HH:MM`. |
+| `maintenance_exclusions` | Empty map; bounded RFC3339 start/end timestamps and a supported GKE scope. |
 | `postgres` | PostgreSQL tier `db-custom-1-3840`, 20 GiB disk with growth capped at 100 GiB, seven retained backups and seven days of transaction logs. |
 
 See [variables.tf](variables.tf) for complete types and defaults.
@@ -101,7 +109,7 @@ See [variables.tf](variables.tf) for complete types and defaults.
 | --- | --- |
 | `network_id`, `subnetwork_id` | Identifiers for caller-owned networking integrations. |
 | `node_service_account` | Node identity for separately scoped registry access. |
-| `cluster` | Name, location, private endpoint, observed control-plane version and workload identity pool. |
+| `cluster` | Name, location, private endpoint, observed control-plane/node versions and workload identity pool. |
 | `distributed_postgres` | Instance/connection names, hostname, private IP and port; no credentials. |
 
 ## Operation
@@ -113,6 +121,17 @@ exclusion postpones upgrades; it does not disable them permanently. Review its
 expiry and perform the application's authenticated drain, positive worker
 termination and controller settlement before maintenance. Never force-delete a
 worker or create a replacement owner while previous execution is uncertain.
+
+GKE STABLE is the single owner of node versions. The module leaves the node
+pool's `version` computed: new nodes inherit the control-plane version, and later
+Terraform/OpenTofu applies cannot send an old `node_version` input back as a
+downgrade. The existing node-pool resource address is unchanged. `node_version`
+remains an initial control-plane minimum for new installations, not a continuing
+node pin; use the observed `cluster.node_version` output when reviewing upgrades.
+Plan maintenance through the window and bounded exclusions. Node auto-upgrade
+cannot be disabled for the release-channel configuration used here, and no
+exclusion guarantees an indefinite freeze. See Google's
+[release-channel guidance](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/release-channels).
 
 The private control plane admits only the supplied private CIDRs. Dataplane V2
 provides NetworkPolicy enforcement, but the chart owns the actual Pod policies.
@@ -134,6 +153,13 @@ independently verify its inherited safe value. A separate trusted operator
 establishes the administrative credential and initializes/verifies the seven
 isolated stores.
 
+The shared-CA hostname is certificate metadata; Private Services Access does not
+create its private DNS record for this module. The caller must map the exported
+hostname to `distributed_postgres.private_ip` in a private zone attached to
+`network_id`. The complete example includes that zone/A record and enables the
+Cloud DNS API. See Google's
+[server identity verification instructions](https://docs.cloud.google.com/sql/docs/postgres/configure-ssl-instance).
+
 Cloud deletion protections and Terraform `prevent_destroy` guard the cluster,
 database and network. They do not replace backups or paired database/object/key
 restore qualification. Secret escrow and artifact versions remain caller-owned.
@@ -147,3 +173,13 @@ OpenTofu 1.11.0/1.13.1 against Google provider 8.7.0.
 
 The new-cluster creation path is source-reviewed and statically validated; a
 complete fresh Terraform or OpenTofu deployment has not been exercised.
+
+## Registry releases
+
+The Kubernetes module is not yet published in the Terraform or OpenTofu registry.
+Use the pinned Git source above, or a reviewed local checkout, today. The
+intended registry address is `dispatchlabs-ai/dispatch/google`; Terraform and
+OpenTofu resolve that short address against their respective default registries.
+Each registry needs registration and a released semantic version before that
+address can be used with `version`. A successful CLI validation is not evidence
+of registry publication or a completed fresh cloud deployment.
